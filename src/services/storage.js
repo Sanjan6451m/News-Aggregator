@@ -3,29 +3,51 @@ const path = require('path');
 
 class StorageService {
   constructor() {
+    if (StorageService.instance) {
+      return StorageService.instance;
+    }
+    StorageService.instance = this;
+    
     this.dataDir = path.join(__dirname, '../../data');
     this.articlesFile = path.join(this.dataDir, 'articles.json');
     this.articles = [];
     this.defaultImageUrl = 'https://via.placeholder.com/400x300?text=No+Image+Available';
+    this.initialized = false;
+    
+    // Ensure the data directory exists
+    if (!fs.existsSync(this.dataDir)) {
+      fs.mkdirSync(this.dataDir, { recursive: true });
+    }
   }
 
   async initialize() {
+    if (this.initialized) {
+      console.log('Storage already initialized');
+      return;
+    }
+
     try {
+      console.log('Initializing storage...');
       await fs.mkdir(this.dataDir, { recursive: true });
       await this.loadArticles();
+      this.initialized = true;
+      console.log(`Storage initialized with ${this.articles.length} articles`);
     } catch (error) {
       console.error('Error initializing storage:', error);
       this.articles = [];
+      this.initialized = true;
     }
   }
 
   async loadArticles() {
     try {
+      console.log('Loading articles from:', this.articlesFile);
       const data = await fs.readFile(this.articlesFile, 'utf8');
-      this.articles = JSON.parse(data);
+      this.articles = JSON.parse(data) || [];
+      console.log(`Loaded ${this.articles.length} articles from storage`);
     } catch (error) {
       if (error.code === 'ENOENT') {
-        // File doesn't exist, start with empty array
+        console.log('No articles file found, starting with empty array');
         this.articles = [];
         await this.saveArticles();
       } else {
@@ -37,9 +59,12 @@ class StorageService {
 
   async saveArticles() {
     try {
+      console.log(`Saving ${this.articles.length} articles to storage`);
       await fs.writeFile(this.articlesFile, JSON.stringify(this.articles, null, 2));
+      console.log('Articles saved successfully');
     } catch (error) {
       console.error('Error saving articles:', error);
+      throw new Error('Failed to save articles: ' + error.message);
     }
   }
 
@@ -48,18 +73,29 @@ class StorageService {
   }
 
   async save(article) {
+    if (!article || !article.url) {
+      throw new Error('Invalid article data: missing required fields');
+    }
+
     // Add default image if none provided
     if (!article.imageUrl) {
       article.imageUrl = this.defaultImageUrl;
     }
 
+    // Add timestamp if not present
+    if (!article.publishedAt) {
+      article.publishedAt = new Date().toISOString();
+    }
+
     const existingIndex = this.articles.findIndex(a => a.url === article.url);
     if (existingIndex >= 0) {
-      this.articles[existingIndex] = article;
+      this.articles[existingIndex] = { ...this.articles[existingIndex], ...article };
     } else {
       this.articles.push(article);
     }
+    
     await this.saveArticles();
+    return article;
   }
 
   async getAllArticles() {

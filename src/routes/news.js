@@ -9,6 +9,7 @@ const storage = new StorageService();
 (async () => {
   try {
     await storage.initialize();
+    console.log('Storage initialized successfully');
   } catch (error) {
     console.error('Failed to initialize storage:', error);
   }
@@ -141,6 +142,7 @@ router.post('/add-sample', async (req, res) => {
       articles: addedArticles
     });
   } catch (error) {
+    console.error('Error adding sample articles:', error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -148,12 +150,22 @@ router.post('/add-sample', async (req, res) => {
 // Get all news articles with filtering options
 router.get('/', async (req, res) => {
   try {
+    console.log('Received request for articles with query:', req.query);
+    
     const { topic, source, state, page = 1, limit = 20 } = req.query;
-    const result = await storage.getArticles({ topic, source, state, page, limit });
+    console.log('Current articles in storage:', storage.articles.length);
+    
+    const result = await storage.getArticles({ topic, source, state, page: Number(page), limit: Number(limit) });
+    console.log('Filtered articles count:', result.articles.length);
+    
     res.json(result);
   } catch (error) {
     console.error('Error fetching articles:', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ 
+      message: error.message,
+      error: 'Failed to fetch articles',
+      details: error.stack
+    });
   }
 });
 
