@@ -1,5 +1,6 @@
 const fs = require('fs').promises;
 const path = require('path');
+const { scrapeNews } = require('./scraper');
 
 // In-memory storage for serverless environment
 let globalArticles = [];
@@ -14,6 +15,7 @@ class StorageService {
     this.articles = globalArticles;
     this.defaultImageUrl = 'https://via.placeholder.com/400x300?text=No+Image+Available';
     this.initialized = false;
+    this.lastScrapedAt = null;
   }
 
   async initialize() {
@@ -22,15 +24,46 @@ class StorageService {
     }
 
     try {
-      // In serverless environment, always start with sample articles if none exist
-      if (this.articles.length === 0) {
-        await this.addSampleArticles();
+      // Scrape news if no articles exist or if last scrape was more than 15 minutes ago
+      if (this.articles.length === 0 || this.shouldScrape()) {
+        await this.refreshArticles();
       }
       this.initialized = true;
     } catch (error) {
       console.error('Error initializing storage:', error);
       this.articles = [];
       this.initialized = true;
+    }
+  }
+
+  shouldScrape() {
+    if (!this.lastScrapedAt) return true;
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    return this.lastScrapedAt < fifteenMinutesAgo;
+  }
+
+  async refreshArticles() {
+    try {
+      console.log('Scraping fresh news articles...');
+      const scrapedArticles = await scrapeNews();
+      
+      if (scrapedArticles && scrapedArticles.length > 0) {
+        // Keep only the latest 100 articles
+        this.articles = scrapedArticles
+          .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt))
+          .slice(0, 100);
+        globalArticles = this.articles;
+        this.lastScrapedAt = new Date();
+        console.log(`Successfully scraped ${scrapedArticles.length} articles`);
+      } else if (this.articles.length === 0) {
+        // If scraping failed and we have no articles, add sample articles
+        await this.addSampleArticles();
+      }
+    } catch (error) {
+      console.error('Error refreshing articles:', error);
+      if (this.articles.length === 0) {
+        await this.addSampleArticles();
+      }
     }
   }
 
@@ -113,6 +146,11 @@ class StorageService {
 
   async getArticles({ topic, source, state, page = 1, limit = 20 }) {
     try {
+      // Check if we need to refresh articles
+      if (this.shouldScrape()) {
+        await this.refreshArticles();
+      }
+
       let filteredArticles = [...this.articles];
 
       if (topic) {
