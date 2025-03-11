@@ -1,24 +1,23 @@
 {
-  "name": "news-aggregator",
+  "name": "news-aggregator-api",
   "version": "1.0.0",
-  "description": "A news aggregator that crawls Indian news websites and provides analyzed content",
+  "description": "News Aggregator API with real-time RSS feed scraping",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
   "dependencies": {
-    "axios": "^1.6.7",
-    "cheerio": "^1.0.0-rc.12",
+    "axios": "^1.6.2",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
+    "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "natural": "^6.10.4",
-    "node-cron": "^3.0.3",
-    "puppeteer": "^24.4.0",
     "xml2js": "^0.6.2"
   },
   "devDependencies": {
-    "nodemon": "^3.0.3"
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
   }
 }

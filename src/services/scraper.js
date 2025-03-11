@@ -9,64 +9,92 @@ const NEWS_SOURCES = [
   {
     name: 'Times of India',
     url: 'https://timesofindia.indiatimes.com/rssfeedstopstories.cms',
-    category: 'top'
+    topic: 'general'
   },
   {
     name: 'Times of India',
     url: 'https://timesofindia.indiatimes.com/rssfeeds/4719161.cms',
-    category: 'india'
+    topic: 'india'
   },
   {
     name: 'Times of India',
-    url: 'https://timesofindia.indiatimes.com/rssfeeds/4719148.cms',
-    category: 'business'
+    url: 'https://timesofindia.indiatimes.com/rssfeeds/1898055.cms',
+    topic: 'world'
   },
   {
     name: 'Times of India',
-    url: 'https://timesofindia.indiatimes.com/rssfeeds/4719162.cms',
-    category: 'sports'
+    url: 'https://timesofindia.indiatimes.com/rssfeeds/1898272.cms',
+    topic: 'business'
   },
   {
     name: 'The Hindu',
-    url: 'https://www.thehindu.com/news/feeder/default.rss',
-    category: 'news'
+    url: 'https://www.thehindu.com/news/national/feeder/default.rss',
+    topic: 'india'
+  },
+  {
+    name: 'The Hindu',
+    url: 'https://www.thehindu.com/news/international/feeder/default.rss',
+    topic: 'world'
   },
   {
     name: 'The Hindu',
     url: 'https://www.thehindu.com/business/feeder/default.rss',
-    category: 'business'
-  },
-  {
-    name: 'The Hindu',
-    url: 'https://www.thehindu.com/sport/feeder/default.rss',
-    category: 'sports'
+    topic: 'business'
   },
   {
     name: 'Hindustan Times',
     url: 'https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml',
-    category: 'india'
+    topic: 'india'
+  },
+  {
+    name: 'Hindustan Times',
+    url: 'https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml',
+    topic: 'world'
   },
   {
     name: 'Hindustan Times',
     url: 'https://www.hindustantimes.com/feeds/rss/business/rssfeed.xml',
-    category: 'business'
-  },
-  {
-    name: 'Hindustan Times',
-    url: 'https://www.hindustantimes.com/feeds/rss/sports/rssfeed.xml',
-    category: 'sports'
+    topic: 'business'
   }
 ];
 
-// Helper function to clean text by removing HTML tags and special characters
+// Helper function to extract image URL from content
+function extractImageUrl(content) {
+  const imgMatch = content.match(/<img[^>]+src="([^">]+)"/);
+  return imgMatch ? imgMatch[1] : null;
+}
+
+// Helper function to clean text
 function cleanText(text) {
   if (!text) return '';
   return text
     .replace(/<[^>]*>/g, '') // Remove HTML tags
     .replace(/&[^;]+;/g, '') // Remove HTML entities
-    .replace(/[^\w\s.,!?-]/g, '') // Keep only alphanumeric, basic punctuation
     .replace(/\s+/g, ' ') // Normalize whitespace
     .trim();
+}
+
+// Helper function to extract state names from text
+function extractStates(text) {
+  const indianStates = [
+    'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+    'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
+    'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
+    'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
+    'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+    'Delhi', 'Mumbai'
+  ];
+
+  const states = new Set();
+  const textLower = text.toLowerCase();
+  
+  indianStates.forEach(state => {
+    if (textLower.includes(state.toLowerCase())) {
+      states.add(state);
+    }
+  });
+
+  return Array.from(states);
 }
 
 // Helper function to extract key entities from text
@@ -162,39 +190,27 @@ function analyzeSentiment(text) {
 // Function to parse RSS feed
 async function parseRSSFeed(source) {
   try {
-    const response = await axios.get(source.url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
-    });
-    
-    const parser = new xml2js.Parser();
+    const response = await axios.get(source.url);
+    const parser = new xml2js.Parser({ explicitArray: false });
     const result = await parser.parseStringPromise(response.data);
     
-    // Handle different RSS feed formats
-    const items = result.rss?.channel?.[0]?.item || 
-                 result.feed?.entry || 
-                 [];
-    
-    return items.map(item => {
-      const title = item.title?.[0] || item.title?.[0]?._ || '';
-      const link = item.link?.[0] || item.link?.[0]?.$.href || '';
-      const description = item.description?.[0] || item.summary?.[0] || '';
-      const pubDate = item.pubDate?.[0] || item.published?.[0] || new Date().toISOString();
-      const imageUrl = item['media:content']?.[0]?.$.url || 
-                      item['media:thumbnail']?.[0]?.$.url || 
-                      '';
-      
-      return {
-        title: cleanText(title),
-        url: link,
-        content: cleanText(description),
-        publishedAt: new Date(pubDate).toISOString(),
-        imageUrl
-      };
-    });
+    const items = result.rss.channel.item;
+    if (!Array.isArray(items)) return [];
+
+    return items.map(item => ({
+      title: cleanText(item.title),
+      url: item.link,
+      source: source.name,
+      topic: source.topic,
+      summary: cleanText(item.description),
+      imageUrl: extractImageUrl(item.description) || 'https://via.placeholder.com/400x300?text=News',
+      publishedAt: new Date(item.pubDate).toISOString(),
+      keyEntities: [],
+      affectedStates: extractStates(item.description + ' ' + item.title),
+      sentimentScore: 0.5 // Default neutral sentiment
+    }));
   } catch (error) {
-    console.error(`Error fetching RSS feed from ${source.name}:`, error.message);
+    console.error(`Error parsing RSS feed for ${source.name}:`, error);
     return [];
   }
 }
@@ -202,56 +218,31 @@ async function parseRSSFeed(source) {
 // Main scraping function
 async function scrapeNews() {
   const storage = new StorageService();
-  await storage.initialize(); // Initialize storage service
-  
+  await storage.initialize();
+
+  console.log('Starting news scraping...');
+  let totalArticles = 0;
+
   for (const source of NEWS_SOURCES) {
-    console.log(`\nScraping from ${source.name}`);
-    console.log(`Fetching RSS feed: ${source.url}`);
-    
-    const articles = await parseRSSFeed(source);
-    console.log(`Found ${articles.length} articles in RSS feed\n`);
-    
-    for (const article of articles) {
-      console.log(`Processing article: "${article.title}" (${article.url})`);
-      
-      // Skip if no content
-      if (!article.content) {
-        console.log('Skipping article - no content found');
-        continue;
+    try {
+      console.log(`Scraping from ${source.name} (${source.topic})...`);
+      const articles = await parseRSSFeed(source);
+      console.log(`Found ${articles.length} articles from ${source.name}`);
+
+      for (const article of articles) {
+        const existing = await storage.findByUrl(article.url);
+        if (!existing) {
+          await storage.save(article);
+          totalArticles++;
+        }
       }
-      
-      // Check if article already exists
-      const existingArticle = await storage.findByUrl(article.url);
-      if (existingArticle) {
-        console.log(`Found article by URL: ${article.url}`);
-        console.log('Article already exists in storage');
-        continue;
-      }
-      
-      // Process article
-      const processedArticle = new News({
-        id: uuidv4(),
-        title: article.title,
-        url: article.url,
-        source: source.name,
-        topic: determineTopic(article.title, article.content),
-        summary: summarizeText(article.content),
-        sentimentScore: analyzeSentiment(article.content),
-        keyEntities: extractEntities(article.content),
-        affectedStates: findAffectedStates(article.content),
-        imageUrl: article.imageUrl,
-        publishedAt: article.publishedAt,
-        createdAt: new Date().toISOString()
-      });
-      
-      await storage.save(processedArticle);
-      console.log('Article saved successfully');
+    } catch (error) {
+      console.error(`Error processing ${source.name}:`, error);
     }
   }
-  
-  console.log('\nScraping completed successfully');
+
+  console.log(`Scraping completed. Added ${totalArticles} new articles.`);
+  return totalArticles;
 }
 
-module.exports = {
-  scrapeNews
-}; 
+module.exports = { scrapeNews }; 
