@@ -1,6 +1,9 @@
 const fs = require('fs').promises;
 const path = require('path');
 
+// In-memory storage for serverless environment
+let globalArticles = [];
+
 class StorageService {
   constructor() {
     if (StorageService.instance) {
@@ -8,38 +11,22 @@ class StorageService {
     }
     StorageService.instance = this;
     
-    // Use /tmp directory in production (Vercel) or local data directory in development
-    const baseDir = process.env.NODE_ENV === 'production' ? '/tmp' : path.join(__dirname, '../../data');
-    this.dataDir = baseDir;
-    this.articlesFile = path.join(this.dataDir, 'articles.json');
-    this.articles = [];
+    this.articles = globalArticles;
     this.defaultImageUrl = 'https://via.placeholder.com/400x300?text=No+Image+Available';
     this.initialized = false;
-    
-    // Ensure the data directory exists
-    if (!fs.existsSync(this.dataDir)) {
-      fs.mkdirSync(this.dataDir, { recursive: true });
-    }
   }
 
   async initialize() {
     if (this.initialized) {
-      console.log('Storage already initialized');
       return;
     }
 
     try {
-      console.log('Initializing storage...');
-      await fs.mkdir(this.dataDir, { recursive: true });
-      await this.loadArticles();
-      
-      // In production, if no articles exist, add sample articles
-      if (process.env.NODE_ENV === 'production' && this.articles.length === 0) {
+      // In serverless environment, always start with sample articles if none exist
+      if (this.articles.length === 0) {
         await this.addSampleArticles();
       }
-      
       this.initialized = true;
-      console.log(`Storage initialized with ${this.articles.length} articles`);
     } catch (error) {
       console.error('Error initializing storage:', error);
       this.articles = [];
@@ -50,6 +37,7 @@ class StorageService {
   async addSampleArticles() {
     const sampleArticles = [
       {
+        id: '1',
         title: "India's Economic Growth",
         url: "https://example.com/india-economy",
         source: "Times of India",
@@ -62,6 +50,7 @@ class StorageService {
         publishedAt: new Date().toISOString()
       },
       {
+        id: '2',
         title: "Technology Innovation in India",
         url: "https://example.com/tech",
         source: "Hindustan Times",
@@ -72,6 +61,19 @@ class StorageService {
         affectedStates: ["Karnataka", "Telangana"],
         imageUrl: "https://via.placeholder.com/400x300?text=Technology",
         publishedAt: new Date().toISOString()
+      },
+      {
+        id: '3',
+        title: "Sports Update",
+        url: "https://example.com/sports",
+        source: "The Hindu",
+        topic: "sports",
+        summary: "Latest updates from the world of sports.",
+        sentimentScore: 0.6,
+        keyEntities: ["Sports", "Cricket"],
+        affectedStates: ["Delhi", "Mumbai"],
+        imageUrl: "https://via.placeholder.com/400x300?text=Sports",
+        publishedAt: new Date().toISOString()
       }
     ];
 
@@ -80,52 +82,21 @@ class StorageService {
     }
   }
 
-  async loadArticles() {
-    try {
-      console.log('Loading articles from:', this.articlesFile);
-      const data = await fs.readFile(this.articlesFile, 'utf8');
-      this.articles = JSON.parse(data) || [];
-      console.log(`Loaded ${this.articles.length} articles from storage`);
-    } catch (error) {
-      if (error.code === 'ENOENT') {
-        console.log('No articles file found, starting with empty array');
-        this.articles = [];
-        await this.saveArticles();
-      } else {
-        console.error('Error loading articles:', error);
-        this.articles = [];
-      }
-    }
-  }
-
-  async saveArticles() {
-    try {
-      console.log(`Saving ${this.articles.length} articles to storage`);
-      await fs.writeFile(this.articlesFile, JSON.stringify(this.articles, null, 2));
-      console.log('Articles saved successfully');
-    } catch (error) {
-      console.error('Error saving articles:', error);
-      throw new Error('Failed to save articles: ' + error.message);
-    }
-  }
-
-  async findByUrl(url) {
-    return this.articles.find(article => article.url === url);
-  }
-
   async save(article) {
     if (!article || !article.url) {
       throw new Error('Invalid article data: missing required fields');
     }
 
-    // Add default image if none provided
     if (!article.imageUrl) {
       article.imageUrl = this.defaultImageUrl;
     }
 
-    // Add timestamp if not present
     if (!article.publishedAt) {
       article.publishedAt = new Date().toISOString();
+    }
+
+    if (!article.id) {
+      article.id = Date.now().toString();
     }
 
     const existingIndex = this.articles.findIndex(a => a.url === article.url);
@@ -135,90 +106,104 @@ class StorageService {
       this.articles.push(article);
     }
     
-    await this.saveArticles();
+    // Update global articles
+    globalArticles = this.articles;
     return article;
   }
 
-  async getAllArticles() {
-    return this.articles;
-  }
+  async getArticles({ topic, source, state, page = 1, limit = 20 }) {
+    try {
+      let filteredArticles = [...this.articles];
 
-  async getArticlesByTopic(topic) {
-    return this.articles.filter(article => article.topic === topic);
-  }
+      if (topic) {
+        filteredArticles = filteredArticles.filter(article => 
+          article.topic && article.topic.toLowerCase() === topic.toLowerCase()
+        );
+      }
+      if (source) {
+        filteredArticles = filteredArticles.filter(article => 
+          article.source && article.source.toLowerCase() === source.toLowerCase()
+        );
+      }
+      if (state) {
+        filteredArticles = filteredArticles.filter(article => 
+          Array.isArray(article.affectedStates) && 
+          article.affectedStates.some(s => s.toLowerCase() === state.toLowerCase())
+        );
+      }
 
-  async getArticlesBySource(source) {
-    return this.articles.filter(article => article.source === source);
-  }
+      // Sort by published date
+      filteredArticles.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
 
-  async getArticlesByState(state) {
-    return this.articles.filter(article => article.affectedStates.includes(state));
-  }
+      // Calculate pagination
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedArticles = filteredArticles.slice(startIndex, endIndex);
 
-  async getLatestArticles(limit = 10) {
-    return this.articles
-      .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt))
-      .slice(0, limit);
-  }
-
-  async getArticles({ topic, source, state, page = 1, limit = 10 }) {
-    let filteredArticles = [...this.articles];
-
-    // Apply filters
-    if (topic) {
-      filteredArticles = filteredArticles.filter(article => 
-        article.topic && article.topic.toLowerCase() === topic.toLowerCase()
-      );
+      return {
+        articles: paginatedArticles,
+        total: filteredArticles.length,
+        page: parseInt(page),
+        totalPages: Math.ceil(filteredArticles.length / limit)
+      };
+    } catch (error) {
+      console.error('Error in getArticles:', error);
+      return {
+        articles: [],
+        total: 0,
+        page: parseInt(page),
+        totalPages: 0
+      };
     }
-    if (source) {
-      filteredArticles = filteredArticles.filter(article => 
-        article.source && article.source.toLowerCase() === source.toLowerCase()
-      );
-    }
-    if (state) {
-      filteredArticles = filteredArticles.filter(article => 
-        Array.isArray(article.affectedStates) && 
-        article.affectedStates.some(s => s.toLowerCase() === state.toLowerCase())
-      );
-    }
-
-    // Sort by published date
-    filteredArticles.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-
-    // Calculate pagination
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
-    const paginatedArticles = filteredArticles.slice(startIndex, endIndex);
-
-    return {
-      articles: paginatedArticles,
-      total: filteredArticles.length,
-      page: parseInt(page),
-      totalPages: Math.ceil(filteredArticles.length / limit)
-    };
   }
 
   async getDistinct(field) {
-    const distinctValues = new Set(this.articles.map(article => article[field]));
-    return Array.from(distinctValues).sort();
+    try {
+      if (!field) return [];
+      const values = new Set();
+      this.articles.forEach(article => {
+        if (Array.isArray(article[field])) {
+          article[field].forEach(value => {
+            if (value) values.add(value);
+          });
+        } else if (article[field]) {
+          values.add(article[field]);
+        }
+      });
+      return Array.from(values).sort();
+    } catch (error) {
+      console.error(`Error in getDistinct for field ${field}:`, error);
+      return [];
+    }
   }
 
   async getStats() {
-    const totalArticles = this.articles.length;
-    const topics = await this.getDistinct('topic');
-    const sources = await this.getDistinct('source');
-    const states = await this.getDistinct('affectedStates');
+    try {
+      const totalArticles = this.articles.length;
+      const topics = await this.getDistinct('topic');
+      const sources = await this.getDistinct('source');
+      const states = await this.getDistinct('affectedStates');
 
-    return {
-      totalArticles,
-      topics: topics.length,
-      sources: sources.length,
-      states: states.length,
-      latestArticle: this.articles.length > 0 ? this.articles[0].publishedAt : null
-    };
+      return {
+        totalArticles,
+        topics: topics.length,
+        sources: sources.length,
+        states: states.length,
+        latestArticle: this.articles.length > 0 ? 
+          this.articles.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt))[0].publishedAt 
+          : null
+      };
+    } catch (error) {
+      console.error('Error in getStats:', error);
+      return {
+        totalArticles: 0,
+        topics: 0,
+        sources: 0,
+        states: 0,
+        latestArticle: null
+      };
+    }
   }
 }
 
-module.exports = {
-  StorageService
-}; 
+module.exports = { StorageService }; 

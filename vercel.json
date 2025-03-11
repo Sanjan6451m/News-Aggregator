@@ -8,7 +8,15 @@
   ],
   "routes": [
     {
+      "src": "/api/news",
+      "dest": "src/server.js"
+    },
+    {
       "src": "/api/news/(.*)",
+      "dest": "src/server.js"
+    },
+    {
+      "src": "/api/health",
       "dest": "src/server.js"
     },
     {
