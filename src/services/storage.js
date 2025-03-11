@@ -8,7 +8,9 @@ class StorageService {
     }
     StorageService.instance = this;
     
-    this.dataDir = path.join(__dirname, '../../data');
+    // Use /tmp directory in production (Vercel) or local data directory in development
+    const baseDir = process.env.NODE_ENV === 'production' ? '/tmp' : path.join(__dirname, '../../data');
+    this.dataDir = baseDir;
     this.articlesFile = path.join(this.dataDir, 'articles.json');
     this.articles = [];
     this.defaultImageUrl = 'https://via.placeholder.com/400x300?text=No+Image+Available';
@@ -30,12 +32,51 @@ class StorageService {
       console.log('Initializing storage...');
       await fs.mkdir(this.dataDir, { recursive: true });
       await this.loadArticles();
+      
+      // In production, if no articles exist, add sample articles
+      if (process.env.NODE_ENV === 'production' && this.articles.length === 0) {
+        await this.addSampleArticles();
+      }
+      
       this.initialized = true;
       console.log(`Storage initialized with ${this.articles.length} articles`);
     } catch (error) {
       console.error('Error initializing storage:', error);
       this.articles = [];
       this.initialized = true;
+    }
+  }
+
+  async addSampleArticles() {
+    const sampleArticles = [
+      {
+        title: "India's Economic Growth",
+        url: "https://example.com/india-economy",
+        source: "Times of India",
+        topic: "business",
+        summary: "India's economy shows strong growth in the latest quarter.",
+        sentimentScore: 0.8,
+        keyEntities: ["India", "Economy"],
+        affectedStates: ["Maharashtra", "Gujarat"],
+        imageUrl: "https://via.placeholder.com/400x300?text=Economy",
+        publishedAt: new Date().toISOString()
+      },
+      {
+        title: "Technology Innovation in India",
+        url: "https://example.com/tech",
+        source: "Hindustan Times",
+        topic: "technology",
+        summary: "Indian tech startups are making waves globally.",
+        sentimentScore: 0.7,
+        keyEntities: ["Technology", "Startups"],
+        affectedStates: ["Karnataka", "Telangana"],
+        imageUrl: "https://via.placeholder.com/400x300?text=Technology",
+        publishedAt: new Date().toISOString()
+      }
+    ];
+
+    for (const article of sampleArticles) {
+      await this.save(article);
     }
   }
 

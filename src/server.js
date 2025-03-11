@@ -1,47 +1,54 @@
 const express = require('express');
 const cors = require('cors');
-const cron = require('node-cron');
 const dotenv = require('dotenv');
-const { scrapeNews } = require('./services/scraper');
+const { StorageService } = require('./services/storage');
 const newsRoutes = require('./routes/news');
 
+// Load environment variables
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
-// CORS configuration for Angular frontend
+// CORS configuration
 const corsOptions = {
-  origin: 'http://localhost:4200', // Your Angular app URL
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type'],
-  credentials: true
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.FRONTEND_URL || 'https://news-aggregator-ui-sanjan-ms-projects.vercel.app/'
+    : 'http://localhost:4200',
+  credentials: true,
+  optionsSuccessStatus: 200
 };
 
-// Middleware
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// Initialize storage service
+const storage = new StorageService();
+storage.initialize().catch(console.error);
 
 // Routes
 app.use('/api/news', newsRoutes);
 
-// Schedule news scraping every 3 hours
-cron.schedule('0 */3 * * *', async () => {
-  console.log('Running scheduled news scraping...');
-  try {
-    await scrapeNews();
-  } catch (error) {
-    console.error('Error in scheduled scraping:', error);
-  }
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', environment: process.env.NODE_ENV });
 });
 
-// Initial scraping when server starts
-console.log('Starting initial news scraping...');
-scrapeNews().catch(error => {
-  console.error('Error in initial scraping:', error);
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+  });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-}); 
+// For local development
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+// Export for Vercel
+module.exports = app; 
